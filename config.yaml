@@ -1,0 +1,7 @@
+services:
+- name: Service 1
+  port: 8888
+  fqdn: https://cce9-220-130-1-250.ngrok-free.app
+- name: Service 2
+  port: 5678
+  fqdn: https://4808-220-130-1-250.ngrok-free.app

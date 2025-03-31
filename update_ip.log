@@ -1,0 +1,19 @@
+2025-03-31 16:49:09,244 - INFO - Starting ngrok IP updater script.
+2025-03-31 16:49:09,245 - INFO - Successfully acquired lock on update_ip.lock
+2025-03-31 16:49:09,245 - INFO - Script started successfully.
+2025-03-31 16:49:09,791 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 16:50:10,329 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 16:51:10,847 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 16:52:11,367 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 16:53:11,991 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 16:54:12,611 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 16:55:13,232 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 16:56:13,715 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 16:57:14,213 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 16:58:14,706 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 16:59:15,178 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 17:00:15,726 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 17:01:16,349 - ERROR - Error fetching ngrok URL: 400 Client Error: Bad Request for url: https://api.ngrok.com/tunnels
+2025-03-31 17:02:03,594 - INFO - Script interrupted by user. Exiting.
+2025-03-31 17:02:03,594 - INFO - Released lock on update_ip.lock
+2025-03-31 17:02:03,595 - INFO - Script finished.

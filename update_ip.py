@@ -1,173 +1,114 @@
-#!/usr/bin/env python3
-import requests
-import re
-import time
 import os
-import sys
-import fcntl # For file locking on Unix-like systems (macOS/Linux)
-import logging
+import re
+import yaml  # To read the config file
 
-# --- Configuration ---
-NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels"
-HTML_FILE_PATH = "index.html"
-# Placeholder in index.html to replace. IMPORTANT: Adjust this if needed!
-HREF_PLACEHOLDER = "NGROK_HTTPS_URL_PLACEHOLDER"
-CHECK_INTERVAL_SECONDS = 60 # Check every 60 seconds
-LOCK_FILE_PATH = "update_ip.lock"
-LOG_FILE_PATH = "update_ip.log"
+CONFIG_FILE = "config.yaml"
+HTML_FILE = "index.html"
 
-# --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE_PATH),
-        logging.StreamHandler(sys.stdout) # Also print to console
-    ]
-)
 
-# --- File Locking ---
-class SingleInstance:
-    def __init__(self, lock_file_path):
-        self.lock_file_path = lock_file_path
-        self.lock_file = None
-
-    def __enter__(self):
-        try:
-            # Open the lock file in write mode. Creates if it doesn't exist.
-            self.lock_file = open(self.lock_file_path, 'w')
-            # Try to acquire an exclusive, non-blocking lock
-            fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            logging.info(f"Successfully acquired lock on {self.lock_file_path}")
-            return self # Indicate success
-        except (IOError, BlockingIOError):
-            logging.error(f"Another instance is already running (lock file: {self.lock_file_path}). Exiting.")
-            if self.lock_file:
-                self.lock_file.close()
-            sys.exit(1) # Exit if lock cannot be acquired
-        except Exception as e:
-            logging.error(f"Error acquiring lock: {e}")
-            if self.lock_file:
-                self.lock_file.close()
-            sys.exit(1)
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.lock_file:
-            # Release the lock and close the file
-            fcntl.flock(self.lock_file, fcntl.LOCK_UN)
-            self.lock_file.close()
-            # Optionally remove the lock file, though keeping it is fine
-            # os.remove(self.lock_file_path)
-            logging.info(f"Released lock on {self.lock_file_path}")
-
-# --- Core Logic ---
-def get_ngrok_https_url():
-    """Fetches the public HTTPS URL from the ngrok agent API."""
+def load_config(config_path=CONFIG_FILE):
+    """Loads service configuration from a YAML file."""
     try:
-        response = requests.get(NGROK_API_URL, timeout=5)
-        response.raise_for_status() # Raise an exception for bad status codes
-        data = response.json()
-        # Find the first https tunnel
-        for tunnel in data.get("tunnels", []):
-            if tunnel.get("proto") == "https" and tunnel.get("public_url", "").startswith("https://"):
-                return tunnel["public_url"]
-        logging.warning("No HTTPS tunnel found in ngrok API response.")
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        if not config or 'services' not in config:
+            print(f"Error: Invalid config file format in {config_path}")
+            return None
+        # Basic validation for expected fields (name, port, fqdn)
+        valid_services = []
+        for service in config['services']:
+            if 'name' in service and 'port' in service and 'fqdn' in service:
+                valid_services.append(service)
+            else:
+                print(
+                    f"Warning: Service entry missing required fields (name, port, fqdn): {service}. Skipping.")
+        return valid_services
+    except FileNotFoundError:
+        print(f"Error: Config file not found at {config_path}")
         return None
-    except requests.exceptions.ConnectionError:
-        logging.error(f"Could not connect to ngrok API at {NGROK_API_URL}. Is ngrok running?")
-        return None
-    except requests.exceptions.Timeout:
-        logging.error(f"Request to ngrok API timed out.")
-        return None
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching ngrok URL: {e}")
+    except yaml.YAMLError as e:
+        print(f"Error parsing YAML file {config_path}: {e}")
         return None
     except Exception as e:
-        logging.error(f"An unexpected error occurred while fetching ngrok URL: {e}")
+        print(f"Error loading config: {e}")
         return None
 
-def update_html_file(new_url):
-    """Reads index.html, replaces the placeholder href, and writes it back."""
-    if not new_url:
-        logging.warning("No new URL provided, skipping HTML update.")
-        return False
 
+def update_html_from_config(html_path, services):
+    """Reads an HTML file, updates FQDN placeholders and links based on service config, and writes it back."""
     try:
-        with open(HTML_FILE_PATH, 'r', encoding='utf-8') as f:
-            content = f.read()
+        with open(html_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
 
-        # Use regex to find and replace the href attribute value
-        # This regex looks for href="NGROK_HTTPS_URL_PLACEHOLDER"
-        # It's specific to avoid replacing other hrefs. Adjust the placeholder if needed.
-        pattern = re.compile(f'href="{re.escape(HREF_PLACEHOLDER)}"')
-        
-        if not pattern.search(content):
-            logging.warning(f"Placeholder 'href=\"{HREF_PLACEHOLDER}\"' not found in {HTML_FILE_PATH}. No update made.")
-            return False # Indicate placeholder not found
+        original_html = html_content  # Keep a copy for comparison
+        updates_made = False
 
-        # Check if the URL is already the current one
-        current_url_pattern = re.compile(f'href="{re.escape(new_url)}"')
-        if current_url_pattern.search(content):
-            logging.info(f"URL '{new_url}' is already present in {HTML_FILE_PATH}. No update needed.")
-            return False # Indicate no change needed
+        print(f"Updating {html_path} based on {CONFIG_FILE}...")
 
-        new_content = pattern.sub(f'href="{new_url}"', content, count=1) # Replace only the first occurrence
+        for service in services:  # Removed enumerate, index 'i' no longer needed
+            service_name = service['name']
+            port = service['port']
+            fqdn = service['fqdn']
+            # Construct IDs dynamically based on sanitized service name (e.g., "Service 1" -> "service-1")
+            service_id_base = service_name.lower().replace(' ', '-')
 
-        if new_content != content:
-            with open(HTML_FILE_PATH, 'w', encoding='utf-8') as f:
-                f.write(new_content)
-            logging.info(f"Successfully updated {HTML_FILE_PATH} with URL: {new_url}")
-            return True # Indicate update occurred
+            print(
+                f"  Processing {service_name} (Port {port}) -> {fqdn} for ID base '{service_id_base}'")
+
+            # --- Update the link (<a> tag) ---
+            # Regex to find the <a> tag by its ID, capture parts around href and the content
+            # Regex updated to use the name-based service_id_base
+            pattern_link = re.compile(
+                # Capture start of tag and href using name-based ID
+                rf'(<a\s+[^>]*id="{re.escape(service_id_base)}-link"[^>]*\s+href=")[^"]*("[^>]*>)'
+                # Capture existing text content (like "Service 1 (Port 9000): ")
+                rf'([^<]+)'
+                # Capture start of span using name-based ID
+                rf'(<span\s+[^>]*id="{re.escape(service_id_base)}-fqdn"[^>]*>)'
+                # Match existing span content (placeholder or old URL)
+                rf'[^<]+'
+                rf'(</span>\s*</a>)',  # Capture end of span and end of link
+                re.IGNORECASE | re.DOTALL
+            )
+
+            # Replacement string using captured groups and data from config
+            # Ensure FQDN is properly escaped if it contains special regex characters (unlikely for URLs)
+            replacement_link = rf'\g<1>{re.escape(fqdn)}\g<2>{service_name} (Port {port}): \g<4>{re.escape(fqdn)}\g<5>'
+
+            # Perform the substitution
+            new_html_content = pattern_link.sub(replacement_link, html_content)
+
+            print(new_html_content)
+            if new_html_content != html_content:
+                updates_made = True
+                html_content = new_html_content  # Update content for the next iteration
+                print(f"    Updated elements for {service_id_base}")
+            else:
+                print(
+                    f"    Warning: Could not find or update elements for {service_id_base}. Check HTML structure and IDs.")
+
+        # Write only if changes were made
+        if updates_made:
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            print(f"Successfully updated {html_path}")
         else:
-            # This case should ideally not happen if pattern.search was true and current_url_pattern was false,
-            # but included for completeness.
-            logging.warning(f"Pattern found but replacement resulted in no change. Check regex and placeholder.")
-            return False
+            print(f"No changes needed in {html_path}.")
+
+        return updates_made
 
     except FileNotFoundError:
-        logging.error(f"HTML file not found: {HTML_FILE_PATH}")
-        return False
+        print(f"Error: HTML file not found at {html_path}")
     except Exception as e:
-        logging.error(f"Error updating HTML file: {e}")
-        return False
+        print(f"An error occurred during HTML update: {e}")
 
-# --- Main Execution ---
+
 if __name__ == "__main__":
-    logging.info("Starting ngrok IP updater script.")
-    # Ensure only one instance runs using the lock file
-    with SingleInstance(LOCK_FILE_PATH):
-        logging.info("Script started successfully.")
-        last_known_url = None
-        while True:
-            try:
-                current_url = get_ngrok_https_url()
+    print("Attempting to update HTML based on config file...")
+    services_config = load_config(CONFIG_FILE)
 
-                if current_url:
-                    if current_url != last_known_url:
-                        logging.info(f"Detected ngrok HTTPS URL: {current_url}")
-                        if update_html_file(current_url):
-                            last_known_url = current_url # Update last known URL only if HTML was changed
-                        else:
-                            # If update failed or wasn't needed, check if placeholder exists
-                            # If placeholder doesn't exist, maybe the URL is already correct?
-                            # Re-read to confirm, or assume last_known_url if it exists
-                            pass # Keep the old last_known_url
-                    else:
-                        logging.info(f"ngrok URL unchanged ({current_url}). Checking again in {CHECK_INTERVAL_SECONDS}s.")
-                else:
-                    # Handle case where ngrok might have stopped or URL couldn't be fetched
-                    logging.warning("Could not retrieve ngrok URL. Will retry.")
-                    # Consider if you want to revert the HTML or leave it as is
-                    # last_known_url = None # Reset if you want to force update next time
-
-                time.sleep(CHECK_INTERVAL_SECONDS)
-
-            except KeyboardInterrupt:
-                logging.info("Script interrupted by user. Exiting.")
-                break
-            except Exception as e:
-                logging.error(f"An error occurred in the main loop: {e}")
-                # Avoid rapid looping on persistent errors
-                time.sleep(CHECK_INTERVAL_SECONDS)
-
-    logging.info("Script finished.")
+    if services_config:
+        update_html_from_config(HTML_FILE, services_config)
+    else:
+        print(
+            f"Could not load valid service configurations from {CONFIG_FILE}. HTML not updated.")
