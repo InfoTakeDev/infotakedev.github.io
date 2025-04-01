@@ -14,10 +14,11 @@ def load_config(config_path=CONFIG_FILE):
         if not config or 'services' not in config:
             print(f"Error: Invalid config file format in {config_path}")
             return None
-        # Basic validation for expected fields (name, port, fqdn)
+        # Basic validation for expected fields (name, port, fqdn), tag is optional
         valid_services = []
         for service in config['services']:
             if 'name' in service and 'port' in service and 'fqdn' in service:
+                # Add the service, tag will be handled later if missing
                 valid_services.append(service)
             else:
                 print(
@@ -45,35 +46,49 @@ def update_html_from_config(html_path, services):
 
         print(f"Updating {html_path} based on {CONFIG_FILE}...")
 
-        for service in services:  # Removed enumerate, index 'i' no longer needed
+        for service in services:
             service_name = service['name']
             port = service['port']
             fqdn = service['fqdn']
-            # Construct IDs dynamically based on sanitized service name (e.g., "Service 1" -> "service-1")
-            service_id_base = service_name.lower().replace(' ', '-')
+            tag = service.get('tag')  # Get tag, returns None if not present
 
-            print(
-                f"  Processing {service_name} (Port {port}) -> {fqdn} for ID base '{service_id_base}'")
+            # Use tag for ID if present, otherwise use name
+            if tag:
+                service_id_base = tag.lower().replace(' ', '-')  # Sanitize tag like name
+                print(
+                    f"  Processing {service_name} (Tag: {tag}, Port {port}) -> {fqdn} using tag for ID base '{service_id_base}'")
+            else:
+                service_id_base = service_name.lower().replace(' ', '-')  # Sanitize name
+                print(
+                    f"  Processing {service_name} (Port {port}) -> {fqdn} using name for ID base '{service_id_base}'")
 
             # --- Update the link (<a> tag) ---
             # Regex to find the <a> tag by its ID, capture parts around href and the content
             # Regex updated to use the name-based service_id_base
+            # Regex to find the <a> tag by its ID and the <span> by its ID, capturing necessary parts
+            # This version is more robust to attribute order (id="..." href="..." vs href="..." id="...")
+            print(f"    Attempting to find link ID: '{service_id_base}-link'")
+            print(f"    Attempting to find span ID: '{service_id_base}-fqdn'")
             pattern_link = re.compile(
-                # Capture start of tag and href using name-based ID
-                rf'(<a\s+[^>]*id="{re.escape(service_id_base)}-link"[^>]*\s+href=")[^"]*("[^>]*>)'
-                # Capture existing text content (like "Service 1 (Port 9000): ")
-                rf'([^<]+)'
-                # Capture start of span using name-based ID
+                # Capture the opening <a> tag up to the href attribute value
+                rf'(<a\s+(?:[^>]*\s+)?href=")[^"]*'
+                # Capture the rest of the <a> tag attributes, including the correct id
+                rf'("(?:\s+[^>]*)?\s+id="{re.escape(service_id_base)}-link"(?:[^>]*)*>)'
+                # Capture the text content before the span
+                rf'([^<]*)'
+                # Capture the opening <span> tag, including the correct id
                 rf'(<span\s+[^>]*id="{re.escape(service_id_base)}-fqdn"[^>]*>)'
-                # Match existing span content (placeholder or old URL)
-                rf'[^<]+'
-                rf'(</span>\s*</a>)',  # Capture end of span and end of link
+                # Match the existing content inside the span
+                rf'[^<]*'
+                # Capture the closing span and closing a tags
+                rf'(</span>\s*</a>)',
                 re.IGNORECASE | re.DOTALL
             )
 
             # Replacement string using captured groups and data from config
-            # Ensure FQDN is properly escaped if it contains special regex characters (unlikely for URLs)
-            replacement_link = rf'\g<1>{re.escape(fqdn)}\g<2>{service_name} (Port {port}): \g<4>{re.escape(fqdn)}\g<5>'
+            # Use the actual fqdn value, not re.escape() for the replacement text
+            # Replace \g<3> (original text before span) with the service_name
+            replacement_link = rf'\g<1>{fqdn}\g<2>{service_name} \g<4>{fqdn}\g<5>'
 
             # Perform the substitution
             new_html_content = pattern_link.sub(replacement_link, html_content)
