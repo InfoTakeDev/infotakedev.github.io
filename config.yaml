@@ -1,9 +1,0 @@
-services:
-- tag: service-1
-  name: Raspi Monitor
-  port: 8888
-  fqdn: https://a920-220-130-1-250.ngrok-free.app
-- tag: service-2
-  name: N8N
-  port: 5678
-  fqdn: https://16fe-220-130-1-250.ngrok-free.app
